@@ -1,0 +1,111 @@
+#!/bin/bash
+
+#Author:Kumar.S
+#date 5-12-2016
+
+# create a file config with paramaters 
+#tag_name= "name"
+#tag_value="github"
+#user_name="ubuntu"
+#cfg_file="/tmp/cfg" this is the tmp swap file 
+#pem_dir_path "path to where the pem keys are located"
+#exec_command
+
+# Safety feature: exit script if error is returned, or if variables not set.
+# Exit if a pipeline results in an error.
+set -e
+set -o pipefail
+
+##set env variable ##
+export PATH=$PATH:/usr/local/bin/:/usr/bin
+##config file to set parameters
+[ ! -f ~/cfg ] && { echo "Error: $0 file not found."; exit 1; }
+source ~/cfg
+
+## Variables
+tag_name=$tag_name
+tag_value=$tag_value
+user_name=$user_name
+cfg_file=$tmp_config
+pem_dir_path=$pem_dir_path
+exec_command=false
+ctr=0
+
+##Function validate arguments 
+arg_val(){
+  if [ -z $1 ] ; then
+   echo invalid argument
+   exit 4
+  fi
+}
+## usage for the script 
+usage(){
+   echo RExecute : options
+   echo "         c|-c  <command>"
+   echo "         p|-p  </path/script.sh>"
+}
+##
+##Function : read from /tmp/cfg
+##
+read_conf_file(){
+  while read line
+    do
+      ip_Addr[$ctr]=$(echo $line |cut -d ' ' -f 1)
+      key_pair[$ctr]=$(echo $line|cut -d ' ' -f 2)
+      ((ctr+=1))
+  done<$1
+}
+##
+##Function: get details
+##IP addr,KeyName
+##
+get_instance_details(){
+  ## to do profile 
+    aws ec2 describe-instances --filters "Name=tag:$tag_name,Values=$tag_value" --query Reservations[0].Instances[].[PrivateIpAddress,KeyName] --output text --profile xxx > $cfg_file
+    [ ! -f "$cfg_file" ] && { echo "Error: $0 file not found."; exit 2; }
+
+    if [ -s "$cfg_file" ];then
+        read_conf_file $cfg_file
+    else
+        echo "unable to fetch instance details "
+        exit 2;
+    fi
+}
+##
+## execute commands
+##
+exec(){
+  echo "connecting to $1"
+  echo "Executing $3"
+    if  $exec_command  ;
+     then
+        ssh -i $pem_dir_path/$2.pem $user_name@$1 $3
+     else
+         cat $3 | ssh -i $pem_dir_path/$2.pem $user_name@$1 /bin/bash
+    fi
+}
+## Main execution ##
+[ $# -le  1 ] && { usage; exit 1; }
+
+while [ "$1" != "" ]; do
+    case $1 in
+        -c |c ) shift
+                arg_val $1
+                exec_command=true
+                arg=$1 ;;
+        -p |p ) shift
+                arg_val $1
+                arg=$1;;
+             *) echo "Bad argument!"
+                usage
+              exit 1;;
+     esac
+    shift
+done
+
+get_instance_details
+for (( i=0; i<ctr; i++ ));do
+  exec ${ip_Addr[$i]} ${key_pair[$i]} $arg
+done
+
+exit 0
